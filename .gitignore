@@ -1,0 +1,29 @@
+# ── Environment ───────────────────────────────────────────────
+.env
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# ── Runtime data (auto-created) ──────────────────────────────
+data/
+logs/
+history/*.json
+history/bot.pid
+
+# ── OS files ──────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── IDE ───────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Lock files ────────────────────────────────────────────────
+*.lock
+.gsd/
+get-shit-done-for-antigravity/
+
+bak_old/

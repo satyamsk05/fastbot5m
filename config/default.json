@@ -1,0 +1,17 @@
+{
+  "coins": ["BTC", "ETH", "SOL", "XRP"],
+  "interval_sec": 300,
+  "streak_threshold": 3,
+  "bet_sequence": [3, 6, 13, 28, 60],
+  "candle_settle_sec": 5,
+  "dashboard_refresh_sec": 0.2,
+  "dry_run_balance": 500.0,
+  "min_bet_funds": 3.0,
+  "data_sources": {
+    "polymarket": {
+      "gamma_api": "https://gamma-api.polymarket.com",
+      "clob_api": "https://clob.polymarket.com",
+      "ws_url": "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+    }
+  }
+}
