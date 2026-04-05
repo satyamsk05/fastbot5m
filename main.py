@@ -207,8 +207,22 @@ def get_in_bets() -> float:
 # ═══════════════════════════════════════════════════════════════════════════════
 # MARKET DATA
 # ═══════════════════════════════════════════════════════════════════════════════
-def _tokens(coin: str, ts: int) -> Optional[Dict]:
-    # ── FIXED: Use 15m slug to match INTERVAL_SEC ──
+def _tokens(coin: str, ts: int, data_feed=None) -> Optional[Dict]:
+    # ── OPTIMIZATION: Check DataFeed cache first ──
+    if data_feed:
+        with data_feed.locks[coin.lower()]:
+            m = data_feed.markets.get(coin.lower(), {})
+            if m and m.get("slug") == f"{coin.lower()}-updown-5m-{ts}":
+                tkns = m.get("tokens", {})
+                if tkns:
+                    return {
+                        "yes_token": tkns["up"],
+                        "no_token": tkns["down"],
+                        "condition_id": tkns.get("condition_id", ""),
+                        "slug": m["slug"]
+                    }
+
+    # ── Fallback to Gamma API ──
     slug = f"{coin.lower()}-updown-5m-{ts}"
     url  = f"https://gamma-api.polymarket.com/events?slug={slug}"
     try:
@@ -329,7 +343,7 @@ class CoinProc:
         self.warmup = hm.get_warmup_state().get(self.coin, 0)
         self.log = get_coin_logger(coin)
 
-    def tick(self, now: int) -> Optional[Dict]:
+    def tick(self, now: int, data_feed=None) -> Optional[Dict]:
         """Run every second. Returns signal dict or None."""
         boundary   = (now // INTERVAL_SEC) * INTERVAL_SEC
         since      = now - boundary
@@ -358,19 +372,27 @@ class CoinProc:
 
         # 2. Fetch close & store candle (ALWAYS, even during warmup)
         cp = None
-        tkns = _tokens(coin, closed_ts)
+        tkns = _tokens(coin, closed_ts, data_feed=data_feed)
         if tkns:
             cp = _price(tkns["yes_token"])
+            # ── FALLBACK: Use WebSocket Mid-Price if last-trade-price is 0/None ──
+            if (cp is None or cp <= 0) and data_feed:
+                st = data_feed.get_state(coin.lower())
+                if st and st.get("up_ask") and st.get("down_ask"):
+                    # Mid price of YES token = (UP_ASK + (1 - DOWN_ASK)) / 2
+                    # But for signaling, UP_ASK is usually sufficient or mid calculation
+                    cp = (st["up_ask"] + (1 - st["down_ask"])) / 2
+                    self.log.info(f"Using Mid-Price fallback for {coin}: {cp:.4f}")
         
-        # Fallback: if pending had this ts, use its yes_token for price
+        # Fallback 2: if pending had this ts
         if cp is None and pend and pend.get("ts") == closed_ts:
             cp = _price(pend["yes_token"])
         
-        if cp is not None:
+        if cp is not None and cp > 0:
             self.log.info(f"Close: {cp:.4f}")
             hm.push_candle(coin, closed_ts, cp)
         else:
-            self.log.warning("Could not fetch close price")
+            self.log.warning(f"Could not fetch close price for {coin}")
 
         # 3. Warmup — feed candle to strategy but don't trade
         if self.warmup < 3:
@@ -822,9 +844,9 @@ def main():
                     time.sleep(1)
                     continue
 
-                # Run p.tick(now) for all coins in parallel
+                # Run p.tick(now, data_feed) for all coins in parallel
                 sigs = []
-                futures = {executor.submit(p.tick, now): c for c, p in procs.items()}
+                futures = {executor.submit(p.tick, now, data_feed): c for c, p in procs.items()}
                 
                 for f in futures:
                     coin = futures[f]

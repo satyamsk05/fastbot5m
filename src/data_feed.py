@@ -117,6 +117,14 @@ class DataFeed:
             }
         }
         
+        # ✅ PRE-FETCH CACHE: Stores next market IDs to avoid boundary latency
+        self.cached_tokens = {
+            'btc': None,
+            'eth': None,
+            'sol': None,
+            'xrp': None
+        }
+        
         # Current prices (only BTC and ETH have price feeds)
         self.btc_price = 0.0
         self.eth_price = 0.0
@@ -210,16 +218,16 @@ class DataFeed:
         """Register callback function for price updates (event-driven)"""
         self.price_callbacks.append(callback)
     
-    def _current_slug(self, coin: str) -> str:
-        """Calculate current market slug for specified coin"""
-        current_slot = int(time.time()) // 300 * 300
-        return f"{coin}-updown-5m-{current_slot}"
+    def _current_slug(self, coin: str, offset: int = 0) -> str:
+        """Calculate market slug for specified coin and optional future offset (in seconds)"""
+        slot = (int(time.time() + offset) // 300) * 300
+        return f"{coin}-updown-5m-{slot}"
     
-    def _fetch_tokens(self, coin: str) -> Optional[Dict]:
-        """Fetch current market tokens from Polymarket for specified coin"""
+    def _fetch_tokens(self, coin: str, offset: int = 0) -> Optional[Dict]:
+        """Fetch current or future market tokens from Polymarket for specified coin"""
         try:
             gamma_api = self.config['data_sources']['polymarket']['gamma_api']
-            slug = self._current_slug(coin)
+            slug = self._current_slug(coin, offset=offset)
             
             # Use events API with specific slug
             url = f"{gamma_api}/events?slug={slug}"
@@ -266,17 +274,30 @@ class DataFeed:
     def _polymarket_worker(self, coin: str):
         """Polymarket WebSocket worker for specified coin"""
         while not self.stop_event.is_set():
-            # Fetch tokens
-            tokens = self._fetch_tokens(coin)
+            # ── BOUNDARY RECOVERY ──
+            current_time = int(time.time())
+            market_end = ((current_time // 300) * 300) + 300
+            reconnect_in = market_end - current_time
+            
+            # Re-check cache first
+            if self.cached_tokens.get(coin) and self.cached_tokens[coin].get('slug') == self._current_slug(coin):
+                tokens = self.cached_tokens[coin]
+            else:
+                tokens = self._fetch_tokens(coin)
+            
             if not tokens:
                 time.sleep(5)
                 continue
             
-            with self.locks[coin]:
-                self.markets[coin]['tokens'] = tokens
-            
-            # Save token IDs to trader module for real trading
+            # Save token IDs to trader module immediately
             market_slug = self._current_slug(coin)
+            tokens['slug'] = market_slug # Ensure slug is inside dict
+            
+            with self.locks[coin]:
+                self.markets[coin]['slug'] = market_slug
+                self.markets[coin]['market_end_time'] = market_end
+                self.markets[coin]['tokens'] = tokens
+
             trader_module.set_token_ids(
                 market_slug=market_slug,
                 up_token_id=tokens['up'],
@@ -284,34 +305,6 @@ class DataFeed:
                 condition_id=tokens.get('condition_id', ''),
                 neg_risk=tokens.get('neg_risk', True)
             )
-            
-            # Calculate reconnect time
-            current_time = int(time.time())
-            market_end = ((current_time // 300) * 300) + 300
-            reconnect_in = market_end - current_time + 2
-            
-            # Get market slug
-            market_slug = self._current_slug(coin)
-            
-            with self.locks[coin]:
-                self.markets[coin]['slug'] = market_slug
-                self.markets[coin]['market_end_time'] = market_end
-                self.markets[coin]['tokens'] = tokens
-                
-                # ✅ Register market in PositionTracker for tracking via WebSocket
-                self.position_tracker.register_market(
-                    market_slug=market_slug,
-                    up_token_id=tokens['up'],
-                    down_token_id=tokens['down']
-                )
-                
-                # Set market start price only for BTC/ETH (not needed for SOL/XRP)
-                if self.markets[coin]['market_start_price'] == 0.0:
-                    if coin == 'btc':
-                        self.markets[coin]['market_start_price'] = self.btc_price
-                    elif coin == 'eth':
-                        self.markets[coin]['market_start_price'] = self.eth_price
-                    # SOL/XRP: leave at 0.0 (no price feed needed)
             
             logger.info(f"[PM-{coin.upper()}] Connected to {market_slug}, reconnect in {reconnect_in}s")
             
@@ -344,6 +337,18 @@ class DataFeed:
                 timer = threading.Timer(reconnect_in, lambda: ws.close())
                 timer.start()
                 
+                # Pre-fetch timer (lookahead for next market 45s before end)
+                pre_fetch_in = max(1, reconnect_in - 45)
+                def do_prefetch():
+                    next_tkns = self._fetch_tokens(coin, offset=300)
+                    if next_tkns:
+                        next_tkns['slug'] = self._current_slug(coin, offset=300)
+                        self.cached_tokens[coin] = next_tkns
+                        logger.info(f"[PM-{coin.upper()}] ✅ Pre-fetched IDs for next 5m market")
+                
+                pf_timer = threading.Timer(pre_fetch_in, do_prefetch)
+                pf_timer.start()
+                
                 # Stop checker thread
                 def check_stop():
                     while not self.stop_event.is_set():
@@ -356,6 +361,7 @@ class DataFeed:
                 
                 ws.run_forever(ping_interval=20, ping_timeout=10, skip_utf8_validation=True)
                 timer.cancel()
+                pf_timer.cancel()
                 
                 # Stop immediately if stop_event is set
                 if self.stop_event.is_set():
@@ -515,26 +521,13 @@ class DataFeed:
                     callbacks_to_call = list(self.price_callbacks)
             
             # Call callbacks outside the lock
-            # 🔥 ASYNC: each coin is processed in parallel
+            # 🛡️ Direct call for lightweight update (removed legacy Thread-per-message)
             if price_changed and callbacks_to_call:
                 for callback in callbacks_to_call:
                     try:
-                        # Wrapper for safe call
-                        def safe_callback_wrapper():
-                            try:
-                                callback(coin, market_state)
-                            except Exception as e:
-                                # Log but don't crash
-                                logger.error(f"[CALLBACK ERROR] {coin}: {e}", exc_info=True)
-                        
-                        # 🛡️ Start in separate thread (doesn't block other coins)
-                        threading.Thread(
-                            target=safe_callback_wrapper,
-                            daemon=True,
-                            name=f"cb_{coin}_{int(time.time()*1000)}"
-                        ).start()
+                        callback(coin, market_state)
                     except Exception as e:
-                        logger.info(f"[CALLBACK ERROR] Failed to start callback for {coin}: {e}")
+                        logger.error(f"[CALLBACK ERROR] {coin}: {e}")
                 
         except Exception as e:
             pass  # Ignore parsing errors
