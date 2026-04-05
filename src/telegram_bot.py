@@ -410,6 +410,27 @@ class TelegramNotifier:
             f"*PnL:*   *{'+' if pnl>=0 else ''}${pnl:.2f}*"
         ]))
 
+    def notify_insufficient_funds(self, coin: str, balance: float, need: float):
+        """Send a low funds alert."""
+        self.send(_box(f"⚠️ LOW FUNDS: {coin}", [
+            f"*Available:* *${balance:.2f}*",
+            f"*Needed:*    *${need:.2f}*",
+            f"*Advice:*    Add more USDC to your wallet."
+        ]))
+
+    def send_market_closed(self, coin: str, trade: Dict, session_stats: Dict, portfolio_stats: Dict):
+        """Send a formatted notification for a closed market (used by redeem collector)."""
+        pnl = trade.get("pnl", 0.0)
+        roi = trade.get("roi_pct", 0.0)
+        status = "✅ WIN" if pnl >= 0 else "❌ LOSS"
+        
+        self.send(_box(f"📊 SETTLED: {coin}", [
+            f"*Status:*   *{status}*",
+            f"*PnL:*      *{'+' if pnl>=0 else ''}${pnl:.2f}*",
+            f"*ROI:*      *{roi:+.1f}%*",
+            f"*Portfolio:* *{portfolio_stats.get('total_pnl', 0.0):+.2f}*"
+        ]))
+
     def notify_error(self, title: str, details: str):
         """Send a critical error alert."""
         self.send(_box(f"🚨 ALERT: {title}", [

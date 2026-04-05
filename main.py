@@ -262,7 +262,7 @@ def get_clob_client():
         return _clob_client
 
 def _place(token_id: str, amount: float, coin: str,
-           step: int, direction: str, price: Optional[float] = None):
+           step: int, direction: str, price: Optional[float] = None, slug: str = None):
     """Returns (success, price, order_type_label)"""
     # ── FIXED: Use passed price or fallback only if still None ──
     if price is None:
@@ -280,8 +280,9 @@ def _place(token_id: str, amount: float, coin: str,
         
         # ── SAFETY CHECK ──
         if _safety:
-            tkns = _tokens(coin, (int(time.time())//INTERVAL_SEC)*INTERVAL_SEC)
-            slug = tkns.get("slug") if tkns else "unknown"
+            if not slug:
+                tkns = _tokens(coin, (int(time.time())//INTERVAL_SEC)*INTERVAL_SEC)
+                slug = tkns.get("slug") if tkns else "unknown"
             size = round(amount / price, 2)
             ok, reason = _safety.check_order_allowed("BUY", size, price, slug)
             if not ok:
@@ -311,7 +312,8 @@ def _redeem_all():
     global _redeem_status
     if 'collector' in globals() and collector:
         collector.manual_check()
-        _redeem_status = collector.get_status()
+        stats = collector.get_stats()
+        _redeem_status = f"Redeemed: {stats.get('total_redeemed', 0)}"
     elif DRY_RUN:
         _redeem_status = "Dry Run"
     else:
@@ -394,6 +396,7 @@ class CoinProc:
         sig["yes_token"]    = active_tkns["yes_token"]
         sig["no_token"]     = active_tkns["no_token"]
         sig["condition_id"] = active_tkns["condition_id"]
+        sig["slug"]         = active_tkns["slug"]
         return sig
 
     def _resolve(self, pend: Dict, closed_ts: int):
@@ -531,7 +534,8 @@ def _pick_and_place(signals: List[Dict], notifier, data_feed):
     else:
         price = max(0.47, min(price, 0.54))  # L2-L5 bracket: 47c to 54c
 
-    ok, price, ot = _place(token_id, amount, coin, step, direction, price=price)
+    slug = chosen.get("slug")
+    ok, price, ot = _place(token_id, amount, coin, step, direction, price=price, slug=slug)
 
     if ok:
         if DRY_RUN:

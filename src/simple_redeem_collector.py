@@ -81,6 +81,14 @@ class SimpleRedeemCollector:
         self.thread.start()
         print(f"[REDEEM COLLECTOR] ✅ Started (daemon thread)")
     
+    def manual_check(self):
+        """Trigger an immediate redeem check from another thread."""
+        print(f"[REDEEM COLLECTOR] ⚡ Manual check triggered!")
+        try:
+            self._check_and_redeem_all(check_type="MANUAL")
+        except Exception as e:
+            print(f"[REDEEM COLLECTOR] ❌ Manual check failed: {e}")
+
     def stop(self):
         """Stop background thread"""
         self.is_running = False
