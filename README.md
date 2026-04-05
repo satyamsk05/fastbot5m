@@ -74,8 +74,10 @@ fastbot5m/
 
 ## ⚙️ Quick Setup
 
-1. **Environment Initialization**:
+1. **Clone & Environment Initialization**:
    ```bash
+   git clone https://github.com/satyamsk05/fastbot5m.git
+   cd fastbot5m
    python3 -m venv venv
    source venv/bin/activate
    pip install -r requirements.txt
