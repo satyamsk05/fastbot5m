@@ -56,10 +56,10 @@ FUNDER_ADDRESS = os.getenv("FUNDER_ADDRESS", "")
 WALLET_ADDRESS = os.getenv("WALLET_ADDRESS", "")
 
 COINS_ENABLED = {
-    "BTC": os.getenv("ENABLE_BTC", "true").lower()  in ("1","true","yes"),
-    "ETH": os.getenv("ENABLE_ETH", "true").lower()  in ("1","true","yes"),
-    "SOL": os.getenv("ENABLE_SOL", "true").lower()  in ("1","true","yes"),
-    "XRP": os.getenv("ENABLE_XRP", "false").lower() in ("1","true","yes"),
+    "BTC": True,  # Keep BTC/ETH enabled
+    "ETH": True,
+    "SOL": False, # Explicitly disable for now
+    "XRP": False,
 }
 ACTIVE_COINS = [c for c, v in COINS_ENABLED.items() if v]
 
@@ -645,7 +645,7 @@ def main():
             }
         }
     })
-    data_feed.start()
+    data_feed.start(ACTIVE_COINS)
     print(f"[SYSTEM] Feeds started: {', '.join(ACTIVE_COINS)}")
 
     # Initialize OrderExecutor and SimpleRedeemCollector

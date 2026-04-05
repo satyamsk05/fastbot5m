@@ -144,14 +144,20 @@ class DataFeed:
         # Event-driven callbacks for price updates
         self.price_callbacks = []
     
-    def start(self):
-        """Start data streams for BTC, ETH, SOL, XRP + User Channel"""
-        # Polymarket WebSocket for all 4 coins
-        for coin in ['btc', 'eth', 'sol', 'xrp']:
-            pm_thread = threading.Thread(target=self._polymarket_worker, args=(coin,), daemon=True)
-            pm_thread.start()
-            self.threads.append(pm_thread)
-            logger.info(f"[DATA] Started Polymarket feed for {coin.upper()}")
+    def start(self, enabled_coins: list = None):
+        """Start data streams for specified coins + User Channel"""
+        if enabled_coins is None:
+            enabled_coins = ['btc', 'eth', 'sol', 'xrp']
+        
+        self.active_coins = [c.lower() for c in enabled_coins] # ✅ Store for Watchdog
+        
+        # Polymarket WebSocket for enabled coins only
+        for coin in self.active_coins:
+            if coin in self.markets:
+                pm_thread = threading.Thread(target=self._polymarket_worker, args=(coin,), daemon=True)
+                pm_thread.start()
+                self.threads.append(pm_thread)
+                logger.info(f"[DATA] Started Polymarket feed for {coin.upper()}")
         
         # ❌ USER CHANNEL DISABLED - WebSocket auth doesn't work
         # Using REST API takingAmount/makingAmount instead!
@@ -359,7 +365,7 @@ class DataFeed:
                 stop_checker = threading.Thread(target=check_stop, daemon=True)
                 stop_checker.start()
                 
-                ws.run_forever(ping_interval=20, ping_timeout=10, skip_utf8_validation=True)
+                ws.run_forever(ping_interval=10, ping_timeout=5, skip_utf8_validation=True)
                 timer.cancel()
                 pf_timer.cancel()
                 
@@ -545,11 +551,13 @@ class DataFeed:
             time.sleep(1)
 
     def _watchdog_worker(self):
-        """Monitor messages for all 4 markets. If any stall > 30s, we disconnect/reconnect."""
+        """Monitor messages for ALL ACTIVE markets. If any stall > 30s, we reconnect."""
         STALL_THRESHOLD = 35  # seconds
         while not self.stop_event.is_set():
             now = time.time()
-            for coin in ['btc', 'eth', 'sol', 'xrp']:
+            # ✅ Only monitor coins that were explicitly started
+            active = getattr(self, 'active_coins', ['btc', 'eth'])
+            for coin in active:
                 with self.locks[coin]:
                     last_msg = self.markets[coin].get('last_msg_time', 0.0)
                     # Don't stall if we just started (wait at least STALL_THRESHOLD)

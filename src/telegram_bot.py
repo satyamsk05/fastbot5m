@@ -66,7 +66,7 @@ class TelegramBot:
         self.on_stop:        Optional[Callable] = None    # () → None   (pause trading)
         self.on_manual_bet:  Optional[Callable] = None   # (coin, dir, amount) → str  (result message)
         self.is_paused:      bool = False
-        self.active_coins:   list = ["BTC", "ETH", "SOL", "XRP"]
+        self.active_coins:   list = []
         self.get_health:     Optional[Callable] = None    # () → dict
 
         if TELEGRAM_OK and BOT_TOKEN and CHAT_ID:
