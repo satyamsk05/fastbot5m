@@ -280,7 +280,8 @@ def _place(token_id: str, amount: float, coin: str,
         
         # ── SAFETY CHECK ──
         if _safety:
-            slug = _tokens(coin, (int(time.time())//INTERVAL_SEC)*INTERVAL_SEC).get("slug")
+            tkns = _tokens(coin, (int(time.time())//INTERVAL_SEC)*INTERVAL_SEC)
+            slug = tkns.get("slug") if tkns else "unknown"
             size = round(amount / price, 2)
             ok, reason = _safety.check_order_allowed("BUY", size, price, slug)
             if not ok:

@@ -149,8 +149,10 @@ class Trader:
         
         # Logging
         self.log_dir = Path(log_dir)
-        self.trades_file = self.log_dir / "trades.jsonl"
-        self.session_file = self.log_dir / "session.json"
+        
+        # Determine coin and strategy from path (Bug 3)
+        self.coin = self.log_dir.parent.name.lower() or "unknown"
+        self.strategy_name = "STREAK_REVERSAL"
         
         logger.info(f"[TRADER] Initialized with ${capital:,.2f} capital")
         
@@ -530,8 +532,8 @@ class Trader:
         # Now we can trade new market without limits!
         # ═══════════════════════════════════════════════════════════
         try:
-            if order_executor and hasattr(order_executor, 'safety'):
-                order_executor.safety.reset_market(market_slug)
+            if _order_executor and hasattr(_order_executor, 'safety'):
+                _order_executor.safety.reset_market(market_slug)
         except Exception as reset_err:
             logger.info(f"[TRADER] ⚠ Failed to reset market tracking: {reset_err}")
         
@@ -679,6 +681,7 @@ class Trader:
             # 🔥 REAL SELL (if executor connected)
             # 📊 Collecting real payouts for accurate PnL
             real_payout = 0.0
+            real_pnl = pnl  # Initialize with estimated pnl (Bug 4)
             real_sells_executed = False
             
             if _order_executor and market_slug in _token_ids_cache:

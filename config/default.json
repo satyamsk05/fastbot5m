@@ -13,5 +13,29 @@
       "clob_api": "https://clob.polymarket.com",
       "ws_url": "wss://ws-subscriptions-clob.polymarket.com/ws/market"
     }
+  },
+  "safety": {
+    "dry_run": true,
+    "max_order_size_usd": 100.0,
+    "max_total_investment": 500.0,
+    "max_orders_per_minute": 10
+  },
+  "execution": {
+    "buy": {
+      "max_fak_attempts": 3,
+      "retry_delay_sec": 0.3,
+      "min_order_usd": 1.0,
+      "target_fill_percent": 95.0
+    },
+    "sell": {
+      "strategy": "FOK_CHUNKED",
+      "chunk_size": 40,
+      "chunk_delay_sec": 0.5,
+      "max_chunk_retries": 3,
+      "price": 0.01,
+      "min_dust_threshold": 0.1,
+      "sweep_max_attempts": 3,
+      "sweep_retry_delay_sec": 1.0
+    }
   }
 }
